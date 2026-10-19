@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>归档</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- 连接 / 设置 / 扫码 -->
+<div id="gate" class="gate">
+  <div class="gatecard">
+    <div class="glyph">◧</div>
+    <h2 id="gtitle">正在连接…</h2>
+    <p id="gmsg" class="muted small"></p>
+
+    <div id="gsetup" class="hide">
+      <label class="field">api_id<input id="gid" inputmode="numeric" placeholder="12345678"></label>
+      <details id="gadv">
+        <summary>要重新登录？填 api_hash</summary>
+        <label class="field">api_hash<input id="ghash" type="password" placeholder="32 位十六进制"></label>
+      </details>
+      <p class="muted small">
+        在 my.telegram.org → API development tools 申请一个<b>自己的</b>（约 2 分钟）。
+        api_id 每次连接都要发，填一次就存在本机，只发给 Telegram 自己；
+        api_hash 只在<b>重新登录</b>时才用得上。
+      </p>
+      <button id="gsave" class="primary wide">保存并连接</button>
+    </div>
+
+    <div id="gqr" class="hide">
+      <div id="qrbox"><div class="ph">还没有二维码</div></div>
+      <button id="qrbtn" class="primary wide">生成二维码</button>
+    </div>
+
+    <div id="gpw" class="hide">
+      <p class="muted small">这个账号开了两步验证，请输入「设置 → 隐私和安全 → 两步验证」那个密码。</p>
+      <input id="pw" type="password" placeholder="两步验证密码">
+      <button id="pwbtn" class="primary wide">提交</button>
+    </div>
+
+    <div id="glock" class="hide">
+      <p class="muted small">
+        服务现在锁着。口令只能在这台电脑上输 —— 网页是明文 HTTP，不能走局域网。
+        忘了口令就只能「重置并重新登录」。
+      </p>
+      <input id="lockpw" type="password" placeholder="口令" aria-label="启动口令"
+             autocomplete="current-password">
+      <p id="lockmsg" class="muted small"></p>
+      <button id="lockbtn" class="primary wide">解锁</button>
+      <button id="lockreset" class="wide">忘了口令，重置并重新登录</button>
+    </div>
+
+    <button id="gretry" class="wide hide">重试连接</button>
+  </div>
+</div>
+
+<!-- 主界面 -->
+<div id="app" class="app hide">
+  <aside class="side">
+    <div class="sidehead">
+      <div class="brand"><span class="dotmark"></span> 归档</div>
+      <div class="sideacts">
+        <button id="theme" class="icon" title="切换深浅色">◐</button>
+        <button id="settings" class="icon" title="设置">⚙</button>
+        <button id="sclose" class="icon" title="关掉群列表">✕</button>
+      </div>
+    </div>
+    <div class="sidepad">
+      <input id="search" type="search" placeholder="搜群 / 频道">
+    </div>
+    <div id="chats" class="chatlist"></div>
+    <div class="sidefoot"><div id="stats" class="muted small"></div></div>
+  </aside>
+
+  <main class="main">
+    <header class="head">
+      <!-- 手机上一行横滑；桌面换行。设置/筛选收成下拉面板，别常驻占地方 -->
+      <div class="strip">
+        <button id="sidebtn" class="icon" title="收起 / 展开左边的群列表">☰</button>
+        <div id="title" class="title">选左边一个群或频道</div>
+        <button id="refresh" class="ghost">刷新列表</button>
+        <button id="toggle" class="primary">开始监听</button>
+        <button id="cfgbtn" class="ghost">本群设置</button>
+        <button id="fbtn" class="ghost">筛选</button>
+        <button id="csvbtn" class="ghost mini">导出清单</button>
+        <button id="zipbtn" class="ghost mini">打包 zip</button>
+        <button id="editbtn" class="ghost mini">选择</button>
+        <span id="count" class="muted small"></span>
+        <div class="tabs">
+          <button data-tab="list" class="on">列表</button>
+          <button data-tab="stats">统计</button>
+        </div>
+      </div>
+
+      <div id="cfg" class="cfg">
+        <div class="grp"><b>监听</b>
+          <label class="chk"><input type="checkbox" id="kphoto" checked> 图片</label>
+          <label class="chk"><input type="checkbox" id="kvideo" checked> 视频</label>
+          <label class="chk">单文件上限 <input type="number" id="maxmb" value="100" min="1"
+            max="4096"> MB</label>
+          <label class="chk">只收这些用户 <input type="text" id="wauth" value=""
+            placeholder="逗号分隔的 ID，留空收全部" size="20" style="width:14em"></label>
+          <span id="wstate" class="muted small"></span>
+        </div>
+        <div class="grp"><b>补历史</b>
+          <label class="chk">补最近 <input type="number" id="bfhours" value="3" min="1"
+            max="720"> 小时</label>
+          <button id="bfbtn" class="ghost">补历史</button>
+          <span id="bfstate" class="muted small"></span>
+        </div>
+        <div class="grp"><b>清理</b>
+          <button id="purge" class="ghost">清理跳过</button>
+          <button id="purgedel" class="ghost">清理已删除</button>
+        </div>
+        <!-- 布局诊断（视口/屏幕/缩放/走哪套布局）：平时不显示，地址后面加 ?diag 才出来 -->
+        <div id="diag" class="muted small hide"></div>
+      </div>
+
+      <div id="fpanel" class="cfg">
+        <div class="grp"><b>类型 / 状态</b>
+          <select id="filter">
+            <option value="">全部</option>
+            <option value="photo">只看图片</option>
+            <option value="video">只看视频</option>
+            <option value="done">只看下好的</option>
+            <option value="pending">只看等待中</option>
+            <option value="skipped" title="文件超过单文件上限，只留了索引没下文件">只看跳过的</option>
+            <option value="deleted" title="Telegram 上已经被删掉，但归档还留着">只看已删除</option>
+            <option value="edited" title="编辑过媒体的，点卡片上的「已编辑」能看每一版">只看已编辑</option>
+            <option value="star" title="你标了星标的">只看收藏</option>
+          </select>
+        </div>
+        <div class="grp"><b>作者</b>
+          <select id="author"><option value="">全部作者</option></select>
+        </div>
+        <div class="grp"><b>话题</b>
+          <select id="topic"><option value="">全部话题</option></select>
+        </div>
+        <div id="fhint" class="muted small"></div>
+      </div>
+    </header>
+
+    <div id="items" class="items"></div>
+    <div id="empty" class="empty hide"></div>
+    <div id="more" class="morewrap hide"></div>
+  </main>
+
+  <!-- 窄屏底部标签栏：桌面端不显示，靠 CSS 控制 -->
+  <nav id="tabbar" class="tabbar">
+    <button data-mob="chats">群列表</button>
+    <button data-mob="list" class="on">列表</button>
+    <button data-mob="stats">统计</button>
+    <button data-mob="settings">设置</button>
+  </nav>
+</div>
+
+<!-- 设置抽屉 -->
+<div id="drawer" class="drawer hide">
+  <div class="drawerbox">
+    <div class="drawerhead">
+      <b>设置</b>
+      <button id="dclose" class="icon">✕</button>
+    </div>
+    <label class="field">api_id<input id="did" inputmode="numeric" placeholder="12345678"></label>
+    <label class="field">api_hash（可留空）<input id="dhash" type="password" placeholder="留空表示不改"></label>
+    <label class="field">磁盘上限（GB）<input id="dcap" type="number" min="1" max="9999"></label>
+    <label class="field">访问密码（留空表示不改）
+      <input id="lanpw" type="password" placeholder="设一个，手机上打开时输入"></label>
+    <p class="muted small" id="lanstate"></p>
+    <label class="field">启动口令（留空表示不改）
+      <input id="dlockpw" type="password" placeholder="至少 6 位，每次重启要在本机输一次"></label>
+    <p class="muted small" id="lockstate"></p>
+    <button id="lockoff" class="wide hide">取消启动口令</button>
+    <p class="muted small" id="legacywarn"></p>
+    <div id="dstate" class="muted small"></div>
+    <button id="dsave" class="primary wide">保存</button>
+  </div>
+</div>
+
+<div id="light" class="light hide"><div id="lightbox"></div></div>
+<div id="toast" class="toast hide"></div>
+<div id="sharemenu" class="hide"></div>
+
+<!-- 编辑模式的底部操作条：选中 N 张 → 批量删除 -->
+<div id="pickbar" class="hide">
+  <span id="pickcnt">已选 0 张</span>
+  <button id="pickall" class="ghost mini">全选</button>
+  <button id="pickclear" class="ghost mini">清空</button>
+  <button id="pickdel" class="primary mini">删除所选</button>
+</div>
+
+<!-- 自己的确认弹窗（不用原生 confirm：手机上会被浏览器拦、也丑） -->
+<div id="ask" class="ask hide"><div class="askbox">
+  <div id="asktext" class="asktext"></div>
+  <div class="askbtns">
+    <button id="askno" class="ghost">取消</button>
+    <button id="askyes">删除</button>
+  </div>
+</div></div>
+
+<script src="/app.js"></script>
+</body>
+</html>

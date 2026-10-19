@@ -1,0 +1,11 @@
+# 归档库
+library/
+# 运行时产物
+*.log
+_server.pid
+__pycache__/
+# 测试
+_tests/_ui_stub_tmp
+_tests/_selftest_tmp
+_tests/__pycache__
+TODO.md

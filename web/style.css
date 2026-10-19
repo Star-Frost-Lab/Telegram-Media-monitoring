@@ -1,0 +1,325 @@
+:root, [data-theme="light"]{
+  color-scheme: light;
+  --bg:#f2f4f7; --panel:#fff; --panel2:#f7f8fa; --border:#e2e6ec;
+  --text:#1b1f24; --muted:#6b7280; --accent:#2f6fed; --accentink:#fff;
+  --ok:#12805c; --warn:#b26a00; --danger:#c0392b; --chip:#eef1f6;
+  --shadow:0 1px 2px rgba(16,24,40,.06), 0 6px 18px rgba(16,24,40,.07);
+}
+[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#12141a; --panel:#1a1d24; --panel2:#14171d; --border:#2a2f39;
+  --text:#e7e9ee; --muted:#98a1b0; --accent:#5b9dff; --accentink:#0b0d10;
+  --ok:#3ddc97; --warn:#e0a05a; --danger:#ef6b5e; --chip:#232833;
+  --shadow:0 1px 2px rgba(0,0,0,.35), 0 8px 22px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:14px/1.55 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased}
+.hide{display:none !important}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+.spacer{flex:1}
+code{background:var(--chip);padding:1px 5px;border-radius:4px;font-size:12px}
+
+button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--border);
+  background:var(--panel);color:var(--text);padding:7px 13px;
+  transition:background .13s,border-color .13s,transform .06s}
+button:hover{background:var(--panel2)}
+button:active{transform:translateY(1px)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accentink);
+  font-weight:600}
+button.primary:hover{filter:brightness(1.08)}
+button.primary.on{background:var(--danger);border-color:var(--danger);color:#fff}
+button.ghost{background:transparent}
+button.ghost:hover{background:var(--panel2)}
+button.ghost.on{border-color:var(--accent);color:var(--accent)}   /* 这个按钮上挂着生效的筛选 */
+button.icon{padding:6px 9px;line-height:1}
+button.wide{width:100%;margin-top:10px}
+button:disabled{opacity:.5;cursor:default}
+input,select{font:inherit;color:var(--text);background:var(--panel2);
+  border:1px solid var(--border);border-radius:8px;padding:7px 10px;outline:none}
+input:focus,select:focus{border-color:var(--accent)}
+input[type=number]{width:78px}
+label.field{display:block;margin-bottom:10px;font-size:13px;color:var(--muted)}
+label.field input{display:block;width:100%;margin-top:5px}
+label.chk{display:inline-flex;align-items:center;gap:6px;color:var(--text)}
+hr{border:0;border-top:1px solid var(--border);margin:16px 0}
+
+/* ---------- 连接 / 设置 / 扫码 ---------- */
+.gate{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;
+  background:var(--bg)}
+.gatecard{width:380px;background:var(--panel);border:1px solid var(--border);border-radius:14px;
+  padding:26px;box-shadow:var(--shadow);text-align:center}
+.glyph{font-size:34px;color:var(--accent);line-height:1}
+.gatecard h2{margin:10px 0 6px;font-size:17px}
+.gatecard p{text-align:left}
+#gsetup{text-align:left;margin-top:14px}
+#gadv{margin-bottom:10px}
+#gadv summary{font-size:13px;color:var(--muted);cursor:pointer}
+#gadv[open] summary{margin-bottom:8px}
+#qrbox{margin:14px auto 4px;background:#fff;border-radius:10px;padding:10px;
+  width:236px;height:236px;display:flex;align-items:center;justify-content:center}
+#qrbox img{width:216px;height:216px;display:block}
+#qrbox .ph{color:#9aa3b2;font-size:13px}
+#gpw{text-align:left;margin-top:14px}
+#gpw input{width:100%;margin-bottom:8px}
+.spin{width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);
+  border-radius:50%;display:inline-block;animation:sp .8s linear infinite;vertical-align:-3px}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* ---------- 主布局 ---------- */
+/* 1fr 其实是 minmax(auto,1fr)：轨道的最小尺寸 = 内容的最小宽度，一个长群名就能把整页顶宽
+   （手机上实测过 787px 塞进 324px 的屏）。用 minmax(0,1fr) 把这条堵死。 */
+.app{display:grid;grid-template-columns:300px minmax(0,1fr);height:100vh}
+/* 桌面端左边的群列表也能收起来：轨道变 0 宽 + 不显示，顶行的 ☰ 再点回来 */
+.app.noside{grid-template-columns:0 minmax(0,1fr)}
+.app.noside .side{display:none}
+.side{background:var(--panel);border-right:1px solid var(--border);display:flex;
+  flex-direction:column;min-height:0}
+.sidehead{display:flex;align-items:center;justify-content:space-between;padding:14px 14px 8px}
+.brand{font-weight:600;display:flex;align-items:center;gap:7px}
+.dotmark{width:9px;height:9px;border-radius:50%;background:var(--accent);display:inline-block}
+.sideacts{display:flex;gap:4px}
+.sidepad{padding:0 14px 10px}
+.sidepad input{width:100%}
+.chatlist{flex:1;overflow:auto;padding:0 8px 8px}
+.chat{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;cursor:pointer}
+.chat:hover{background:var(--panel2)}
+.chat.sel{background:var(--chip)}
+.avatar{width:30px;height:30px;border-radius:50%;flex:0 0 auto;display:flex;
+  align-items:center;justify-content:center;font-size:13px;font-weight:600;
+  background:var(--chip);color:var(--muted)}
+.chat.sel .avatar{background:var(--accent);color:var(--accentink)}
+.chat .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat .live{width:8px;height:8px;border-radius:50%;background:var(--border);flex:0 0 auto}
+.chat .live.on{background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 22%,transparent)}
+.sidefoot{border-top:1px solid var(--border);padding:10px 14px}
+
+/* grid-column:2 不能少：收起来时 .side 是 display:none，不占格子了，
+   .main 会被自动摆进第 1 列（0 宽），整个内容区就塌成一条。 */
+.main{display:flex;flex-direction:column;min-height:0;grid-column:2}
+.head{background:var(--panel);border-bottom:1px solid var(--border);padding:12px 18px}
+/* 标题和所有操作挤在一行：桌面换行，窄屏横滑。
+   以前是「标题行 + 筛选行」两行，手机上光这两行就吃掉 208px（屏幕的 32%），
+   看图的地方只剩 394px。 */
+.strip{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+/* min-width:0 不能少：flex 子项默认 min-width:auto，长标题会把整行撑出屏幕，
+   省略号也永远不生效（表现是文字被裁掉）。 */
+.title{font-size:15px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.badge{font-size:11px;padding:1px 7px;border-radius:20px;background:var(--chip);color:var(--muted)}
+/* 设置 / 筛选面板：默认收起，点按钮才展开。桌面端也一样 —— 以前那排是常驻展开的，
+   一长条把列表往下顶。里面按用途分成几组，每组一个小标题。 */
+.cfg{display:none;gap:18px;align-items:flex-start;flex-wrap:wrap;margin-top:10px;
+  padding:10px 12px;background:var(--panel2);border:1px solid var(--border);border-radius:10px}
+.cfg.open{display:flex}
+.grp{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.grp>b{font-size:12px;color:var(--muted);font-weight:600}
+#fhint{flex:1 0 100%}
+.tabs{display:flex;gap:8px;align-items:center}
+.tabs button.on{background:var(--chip);border-color:var(--border);font-weight:600}
+#count{margin-left:auto}
+/* 卡片用瀑布流。原生 masonry 现在还不能用（Chrome 走 display:grid-lanes 且还是实验特性，
+   Firefox / Safari 走 grid-template-rows:masonry），所以用 CSS-Tricks 那套 polyfill：
+   grid-auto-rows 设成 1px，JS 按实测高度给每张卡设 grid-row-end: span N。
+   卡片高度只跟自己有关，不会被同一行里长的那张拉长。 */
+.items{flex:1;overflow:auto;padding:16px;display:grid;gap:14px;
+  grid-template-columns:repeat(auto-fill,minmax(224px,1fr));
+  grid-auto-rows:1px;align-content:start}
+.items > figure{grid-row-end:span 40;align-self:start;min-width:0}
+/* 自动加载的哨兵。必须是真盒子：0×0 的 inline 元素首次相交会被漏掉。
+   横跨所有列、只占 1px，不占卡片位，也不参与 fitMasonry（它没有 __g）。 */
+#sent{grid-column:1/-1;grid-row-end:span 1;height:1px;align-self:start}
+.morewrap{padding:0 18px 18px;text-align:center}
+.empty{flex:1;display:flex;align-items:center;justify-content:center;padding:30px}
+.emptybox{max-width:420px;text-align:center;color:var(--muted);line-height:1.9}
+.emptybox b{color:var(--text)}
+
+/* ---------- 卡片 ---------- */
+figure{margin:0;background:var(--panel);border:1px solid var(--border);border-radius:12px;
+  overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--shadow);
+  transition:transform .12s,border-color .12s}
+figure:hover{transform:translateY(-2px);border-color:var(--accent)}
+.grid{display:grid;gap:2px;background:var(--border)}
+.grid.n1{grid-template-columns:1fr}
+.grid.n2{grid-template-columns:1fr 1fr}
+.grid.n3,.grid.n4{grid-template-columns:1fr 1fr}
+.grid .cell{position:relative;aspect-ratio:1/1;overflow:hidden;background:var(--panel2)}
+.grid a,.grid .thumbonly{display:block;width:100%;height:100%}
+.grid img,.grid video{width:100%;height:100%;object-fit:cover;display:block}
+/* 还没下好的视频：只有缩略图，标一下进度，别让人以为坏了 */
+.pendingmark{position:absolute;left:6px;bottom:6px;z-index:2;background:rgba(0,0,0,.62);
+  color:#fff;border-radius:5px;padding:1px 6px;font-size:11px;pointer-events:none}
+.pendingmark button{pointer-events:auto;vertical-align:middle}
+.none{width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+  padding:10px;text-align:center;color:var(--muted);font-size:12px}
+figcaption{padding:9px 11px;display:flex;flex-direction:column;gap:5px}
+.cap{font-size:13px;max-height:3.3em;overflow:hidden}
+.meta{color:var(--muted);font-size:12px;word-break:break-all;display:flex;gap:6px;
+  align-items:center;flex-wrap:wrap}
+.meta a{color:var(--accent);text-decoration:none}
+.meta a:hover{text-decoration:underline}
+.k{display:inline-block;padding:0 6px;border-radius:5px;background:var(--chip);
+  font-size:11px;color:var(--text)}
+.bad{color:var(--warn)}
+#lanstate{white-space:pre-line}
+.k.click{cursor:pointer;border:1px solid var(--border)}
+.k.click:hover{border-color:var(--accent);color:var(--accent)}
+.before{margin-top:3px;padding:5px 7px;border-left:2px solid var(--border);
+  font-size:12px;color:var(--muted);word-break:break-word;white-space:pre-wrap}
+/* 「已编辑」展开里的版本条：原图 → 每次编辑前 → 现在，每张点开进灯箱 */
+.revstrip{display:flex;gap:8px;overflow-x:auto;margin-bottom:6px;white-space:normal}
+.revcell{flex:0 0 auto;width:92px;text-align:center;font-size:11px}
+.revthumb{position:relative;aspect-ratio:1/1;border-radius:8px;overflow:hidden;
+  background:var(--panel2);cursor:pointer}
+.revthumb img{width:100%;height:100%;object-fit:cover;display:block}
+.revthumb .playmark{width:32px;height:32px;font-size:14px}
+.playmark{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;
+  width:44px;height:44px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-size:18px;pointer-events:none}
+.k.done{color:var(--ok)}
+.k.pending{color:var(--warn)}
+.k.failed{color:var(--danger)}
+
+/* ---------- 抽屉 / 大图 / 提示 ---------- */
+.drawer{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.35);
+  display:flex;justify-content:flex-end}
+.drawerbox{width:380px;max-width:92vw;height:100%;overflow:auto;background:var(--panel);
+  border-left:1px solid var(--border);padding:20px;box-shadow:var(--shadow)}
+.drawerhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;
+  font-size:15px}
+.light{position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.72);
+  display:flex;align-items:center;justify-content:center;padding:24px}
+#lightbox img,#lightbox video{max-width:min(92vw, calc(100vw - 200px));max-height:92vh;
+  display:block;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+/* 两边各留约 100px 给翻页按钮：按钮贴着媒体两侧，不再贴屏幕边 */
+/* 卡片里为了正方形缩略图用了 object-fit:cover，全屏后这条规则照样生效，
+   非屏幕比例的视频（竖屏、正方形）会被放大裁掉大半 —— 全屏要的是完整画面。 */
+video:fullscreen{object-fit:contain}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:90;
+  background:var(--panel);border:1px solid var(--border);border-radius:10px;
+  padding:9px 16px;box-shadow:var(--shadow);font-size:13px}
+
+/* ---------- 自己的确认弹窗 ---------- */
+/* z-index 88：压在灯箱(80)之上、提示条(90)之下 */
+.ask{position:fixed;inset:0;z-index:88;background:rgba(0,0,0,.45);
+  display:flex;align-items:center;justify-content:center;padding:20px}
+.askbox{width:100%;max-width:420px;background:var(--panel);border:1px solid var(--border);
+  border-radius:14px;padding:18px;box-shadow:var(--shadow)}
+.asktext{font-size:14px;line-height:1.65;white-space:pre-line}
+.askbtns{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+#askyes{background:#d0473c;border-color:#d0473c;color:#fff}
+#askyes:hover{background:#b93c32}
+
+/* ---------- 卡片操作 / 分享菜单 ---------- */
+.acts{display:flex;gap:8px;margin-top:2px}
+button.mini{padding:3px 10px;font-size:12px;border-radius:7px}
+.au{cursor:pointer;border-bottom:1px dashed var(--border)}
+.au:hover{color:var(--accent);border-bottom-color:var(--accent)}
+#sharemenu{position:fixed;z-index:95;min-width:200px;display:flex;flex-direction:column;
+  gap:2px;padding:6px;background:var(--panel);border:1px solid var(--border);
+  border-radius:10px;box-shadow:var(--shadow)}
+#sharemenu button{text-align:left;border:0;border-radius:7px;padding:9px 11px;font-size:13px}
+
+button.mini.on{color:var(--warn);border-color:var(--warn)}
+
+/* ---------- 统计页 ---------- */
+.items.stats{display:block;overflow:auto;padding:16px}
+.items.stats h3{margin:18px 0 8px;font-size:14px;color:var(--muted);font-weight:600}
+.items.stats h3:first-child{margin-top:0}
+table.stat{width:100%;border-collapse:collapse;font-size:13px}
+table.stat td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+table.stat td.num{white-space:nowrap;color:var(--accent);font-variant-numeric:tabular-nums}
+
+/* ---------- 灯箱翻页 ---------- */
+/* 布局：#lightbox 居中容器里一行 .lbnav = [‹][媒体 .mid][›]，按钮贴着图/视频两侧。
+   计数胶囊照旧 fixed 顶部居中；按钮/媒体上的点击不关灯箱，点两侧行间隙外才关。 */
+.lbnav{display:flex;align-items:center;gap:14px;font-size:0}
+.lbnav button{flex:0 0 auto;width:44px;height:44px;border-radius:50%;border:0;
+  background:rgba(0,0,0,.55);color:#fff;font-size:24px;line-height:1;padding:0}
+.lbnav button:hover{background:rgba(255,255,255,.3)}
+.lbnav .mid{display:flex;flex-direction:column;align-items:center;gap:8px;min-width:0}
+.lbnav span{position:fixed;left:50%;top:10px;transform:translateX(-50%);
+  background:rgba(0,0,0,.6);color:#fff;border-radius:14px;padding:4px 12px;font-size:13px;z-index:86}
+.lbnote{color:#fff;font-size:13px;text-align:center}
+/* 「已编辑」展开条里每一版的删除小钮 */
+.revdel{margin-left:8px;padding:2px 10px;font-size:12px;border:1px solid var(--border);
+  border-radius:10px;background:transparent;color:var(--muted);cursor:pointer}
+.revdel:hover{color:#fff;background:#b04040;border-color:#b04040}
+
+/* ---------- 编辑模式（选择 + 批量删除） ---------- */
+#items.pick figure{cursor:pointer;position:relative}  /* 角标/灰蒙的定位基准 */
+#items.pick .sel{position:relative;outline:3px solid var(--accent);outline-offset:-3px;
+  border-radius:10px}
+/* 选中要一眼认出：粗外框 + 左上角对勾角标 */
+#items.pick .sel::before{content:'✓';position:absolute;top:7px;left:7px;
+  width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--accentink);
+  font-size:15px;line-height:26px;text-align:center;font-weight:700;z-index:2;
+  pointer-events:none}
+#items.pick figure:not(.sel)::after{content:'';position:absolute;inset:0;
+  background:rgba(128,128,128,.18);pointer-events:none}   /* 没选的蒙一层灰：对比更清楚 */
+#items.pick .acts{display:none}          /* 编辑模式里别误触单卡的删除/分享 */
+#pickbar{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:86;
+  display:flex;align-items:center;gap:12px;background:rgba(20,22,26,.92);color:#fff;
+  border-radius:20px;padding:8px 16px;box-shadow:0 4px 18px rgba(0,0,0,.35)}
+#pickbar button{background:none}
+#pickbar button.ghost{border-color:rgba(255,255,255,.4);color:#fff}
+#pickcnt{font-size:13px;white-space:nowrap}
+html.narrow #pickbar{bottom:52px}        /* 抬到底部标签栏上面，别压住 */
+
+/* ---------- 窄屏：底部标签栏 + 单列布局 ---------- */
+/* 窄屏样式挂在 html.narrow 上而不是 @media：手机上视口可能被报成桌面宽度
+   （「桌面版网站」开着、或者放大过），媒体查询就整块失效、看着跟桌面一样。
+   类名由 app.js 的 markNarrow() 按 innerWidth / screen.width 打。 */
+.tabbar{display:none}
+#sclose{display:none}          /* 桌面端群列表是常驻栏，不需要关闭按钮 */
+#diag{flex:1 0 100%;word-break:break-all}
+html.narrow body{overflow:hidden}      /* 外壳自己就是可视区，别再多出一条能滚的空白 */
+html.narrow .app{
+  /* 高度必须等于「看得见的那块」：vh 是地址栏收起后的高度，标签栏会贴到屏幕外，
+     所以用 dvh（老浏览器退回 vh）。 */
+  grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;
+  height:100vh;height:100dvh}
+/* 手机整页被撑宽过一次（787px 塞进 324px 的屏）：宽轨道 + flex 子项的 min-width:auto，
+   长群名/长作者名会把整页顶宽，表现就是「还是桌面版、右边被切」。这几条是实测过的那版。 */
+html.narrow .main,html.narrow .head,html.narrow .strip{min-width:0;max-width:100%}
+html.narrow .strip>*{min-width:0}
+html.narrow select,html.narrow input{max-width:100%}
+html.narrow .main{grid-area:1/1}
+/* 群列表浮层和主区叠在同一格里，标签栏在第 2 行：浮层永远盖不住标签栏，
+   也就没有以前那种 z-index 之争（以前 .side 55 / 标签栏 50，点开群列表就点不出去了）。 */
+html.narrow .side{display:none;grid-area:1/1;z-index:1;border-right:0}
+html.narrow .side.open{display:flex}
+html.narrow .tabbar{display:flex;grid-row:2;
+  background:var(--panel);border-top:1px solid var(--border);
+  padding-bottom:env(safe-area-inset-bottom)}
+html.narrow .tabbar button{flex:1;border:0;border-radius:0;background:transparent;padding:12px 4px;
+  font-size:12px;color:var(--muted)}
+html.narrow .tabbar button.on{color:var(--accent);font-weight:600}
+html.narrow #sclose{display:inline-flex}
+html.narrow .items{padding:10px;gap:10px;grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
+html.narrow .head{padding:8px 12px}
+/* 手机：顶行只占一行，横向滑动。标题最多 40% 宽，其余按钮滑出来。
+   负外边距让内容贴着屏幕边滚，滚动条藏掉。 */
+html.narrow .strip{flex-wrap:nowrap;overflow-x:auto;gap:6px;margin:0 -12px;padding:0 12px;
+  scrollbar-width:none}
+html.narrow .strip::-webkit-scrollbar{display:none}
+html.narrow .strip>*{flex:0 0 auto}
+html.narrow .strip button{padding:9px 10px;font-size:13px}   /* 挤紧点：一行里能多放两个 */
+html.narrow #title{max-width:32vw}
+html.narrow .tabs button[data-tab]{display:none}      /* 窄屏改用底部标签栏切 tab */
+html.narrow #sidebtn{display:none}                    /* 窄屏的群列表在底部标签栏上 */
+html.narrow .cfg{gap:12px}
+html.narrow #light{padding:0}
+html.narrow #lightbox img,html.narrow #lightbox video{max-width:100vw;max-height:100dvh;border-radius:0}
+/* 手机上媒体铺满整屏：按钮改为 fixed 贴屏幕边（=贴媒体边），不占布局宽度，
+   否则 100vw 的媒体加两个 48px 的按钮会横向溢出 */
+html.narrow .lbnav button{position:fixed;top:50%;transform:translateY(-50%);
+  width:48px;height:48px;font-size:28px}
+html.narrow .lbnav button:first-child{left:8px}
+html.narrow .lbnav button:last-child{right:8px}
+html.narrow .drawerbox{width:100%;max-width:100%}
+html.narrow button{padding:9px 14px}                  /* 手指点得准一点 */
+html.narrow figure:hover{transform:none}              /* 触屏上 hover 会粘住 */
