@@ -42,7 +42,8 @@ $('#theme').onclick = () => {
 const state = {chats: [], chat: null, tab: 'list', minMsg: null,
                cards: new Map(), filter: '', up: false, status: null, stats: null,
                warned: false, loading: false, total: 0, more: false,
-               pick: false, sel: new Set()};   // 编辑模式：sel 存选中卡的 key
+               pick: false, sel: new Set(), chatsKind: '',
+               wtSel: new Set(), wtList: []};   // 话题监听勾选：选中集 + 面板数据
 let pollTimers = false;       // 轮询定时器只注册一次（以前每恢复一次就多一套，手机越用越多请求）
 
 async function api(path, opts) {
@@ -246,6 +247,7 @@ $('#lockreset').onclick = async () => {
 };
 
 /* ---------- 群列表 ---------- */
+let avTimer = null, avRounds = 0;
 async function loadChats(force) {
   try {
     const r = await api('/api/chats' + (force ? '?force=1' : ''));
@@ -255,7 +257,23 @@ async function loadChats(force) {
     const last = localStorage.getItem('arc.chat');
     const prev = last && state.chats.find(c => String(c.chat_id) === last);
     if (prev && (!state.chat || state.chat.chat_id !== prev.chat_id)) selectChat(prev);
+    // 头像在服务端后台补：列表先上，缺头像的隔 15s 看一眼（走缓存，免费），
+    // 到齐或看满 5 次就停
+    clearTimeout(avTimer);
+    if (state.chats.some(c => !c.avatar) && avRounds++ < 5)
+      avTimer = setTimeout(() => loadChats(false), 15000);
+    else avRounds = 0;
   } catch (e) { toast('拉会话列表失败：' + e.message); }
+}
+
+/* 左栏「全部 / 群组 / 频道」筛选 chips：纯前端过滤，不另发请求 */
+for (const b of document.querySelectorAll('#kindchips button')) {
+  b.onclick = () => {
+    state.chatsKind = b.dataset.k;
+    for (const x of document.querySelectorAll('#kindchips button'))
+      x.classList.toggle('on', x === b);
+    renderChats();
+  };
 }
 
 function renderChats() {
@@ -265,12 +283,25 @@ function renderChats() {
   for (const c of state.chats) {
     const title = c.title || String(c.chat_id);
     if (q && !title.toLowerCase().includes(q) && !String(c.chat_id).includes(q)) continue;
+    if (state.chatsKind && c.kind !== state.chatsKind) continue;   // 群/频道 chips
     const on = !!(c.watch && c.watch.enabled);
     const d = document.createElement('div');
     d.className = 'chat' + (state.chat && state.chat.chat_id === c.chat_id ? ' sel' : '');
     const av = document.createElement('span');
     av.className = 'avatar';
-    av.textContent = initial(title);
+    if (c.avatar) {                          // 真头像；挂了回退首字母
+      const im = document.createElement('img');
+      im.src = c.avatar;
+      im.onerror = () => im.remove();
+      av.appendChild(im);
+    }
+    av.appendChild(document.createTextNode(initial(title)));
+    if (c.kind === '频道') {                  // 「全部」模式下也能一眼分出频道
+      const k = document.createElement('i');
+      k.className = 'kmark';
+      k.textContent = '频';
+      av.appendChild(k);
+    }
     const t = document.createElement('span');
     t.className = 't';
     t.textContent = title;
@@ -321,6 +352,7 @@ async function loadTopics(c) {
     const had = state.topic;
     const sel = $('#topic');
     sel.innerHTML = '<option value="">全部话题</option>';
+    state.wtList = [['general', 'General（默认话题）', null]];   // 勾选面板的数据
     let back = '';
     for (const t of r.topics || []) {
       /* 同 loadAuthors：0 条的话题只有正选着的留；顺序由服务端按标题排好 */
@@ -330,7 +362,11 @@ async function loadTopics(c) {
       o.textContent = (t.title || ('话题 ' + t.topic_id)) + '（' + t.n + ' 条）';
       if (String(t.topic_id) === had) back = String(t.topic_id);
       sel.appendChild(o);
+      state.wtList.push([String(t.topic_id),
+                         (t.title || '话题 ' + t.topic_id), t.n]);
     }
+    setPickTopics(((state.chat && state.chat.watch && state.chat.watch.topics) || '')
+      .split(',').filter(x => x));
     if (back) sel.value = back;
     else if (had) {              // 这个话题的条目删光了：退回全部，列表重拉
       state.topic = '';
@@ -354,6 +390,7 @@ async function selectChat(c) {
   setPick(false);                        // 换群也把编辑模式和选择一起清掉
   $('#items').innerHTML = '';
   $('#title').textContent = (c.title || c.chat_id) + '  (' + c.chat_id + ')';
+  applyKindUI(c);
   loadAuthors(c);
   loadTopics(c);
   $('#bfstate').textContent = '';
@@ -362,20 +399,69 @@ async function selectChat(c) {
   $('#kvideo').checked = !w.kinds || w.kinds.includes('video');
   $('#maxmb').value = w.max_mb || 100;
   $('#wauth').value = (w.authors || '').replace(/,/g, ', ');
+  setPickTopics((w.topics || '').split(',').filter(x => x));
   setToggle(!!w.enabled);
   renderChats();
   await loadItems(true);
 }
 
+/* 会话类型差异化：频道没有发信人（白名单/作者筛选本来就没意义），
+   非论坛群没有话题。数据（kind/forum）服务端早就有，这里只管显隐。 */
+function applyKindUI(c) {
+  const chan = c.kind === '频道';
+  $('#wauthrow').classList.toggle('hide', chan);
+  $('#fau').classList.toggle('hide', chan);
+  $('#ftp').classList.toggle('hide', chan || !c.forum);
+  $('#wtopicrow').classList.toggle('hide', chan || !c.forum);
+}
+
+function setPickTopics(ids) {              // 把 watch.topics 灌进「只收这些话题」
+  state.wtSel = new Set(ids);              // general 代表 General；空集 = 全部话题
+  renderWTopic();
+}
+
+/* 话题多选：假下拉 + 勾选面板（原生 multiple 取消要按 Ctrl，等于没法用） */
+function renderWTopic() {
+  const sel = state.wtSel;
+  const box = $('#wtopic');
+  box.querySelector('.v').textContent =
+    sel.size ? '已选 ' + sel.size + ' 个话题' : '全部话题';
+  const list = $('#wlist');
+  list.innerHTML = '';
+  const all = document.createElement('div');
+  all.className = 'witem all' + (sel.size ? '' : ' on');
+  all.title = '不勾任何一条 = 收全部话题；点这里清空选择';
+  all.innerHTML = '<span class="box">✓</span>全部';
+  all.onclick = async () => { sel.clear(); renderWTopic(); await saveWatch(); };
+  list.appendChild(all);
+  for (const [id, title, n] of state.wtList) {
+    const it = document.createElement('div');
+    it.className = 'witem' + (sel.has(id) ? ' on' : '');
+    it.innerHTML = '<span class="box">✓</span>' + escapeHtml(title)
+      + (n != null ? '<span class="n">' + n + ' 条</span>' : '');
+    it.onclick = async () => {             // 再点一下同一个就是取消选中
+      sel.has(id) ? sel.delete(id) : sel.add(id);
+      renderWTopic();
+      await saveWatch();
+    };
+    list.appendChild(it);
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
 function watchBody(state_chat, extra) {
-  /* /api/watch 的公共体 + 作者白名单：白名单按非数字拆开，只留数字 ID */
+  /* /api/watch 的公共体 + 作者白名单：白名单按非数字拆开，只留数字 ID。
+     话题多选恒带上：没选任何话题 = 全部话题（空串） */
   const kinds = [];
   if ($('#kphoto').checked) kinds.push('photo');
   if ($('#kvideo').checked) kinds.push('video');
   const ids = $('#wauth').value.split(/[^\d]+/).filter(x => x);
   return Object.assign({chat_id: state_chat.chat_id, title: state_chat.title,
                         kinds, max_mb: +$('#maxmb').value || 100,
-                        authors: ids}, extra);
+                        topics: [...state.wtSel], authors: ids}, extra);
 }
 
 function setToggle(on) {
@@ -393,7 +479,7 @@ $('#toggle').onclick = async () => {
   try {
     const r = await post('/api/watch', watchBody(state.chat, {enabled: on}));
     state.chat.watch = {enabled: !!r.watch.enabled, max_mb: r.watch.max_mb,
-                        authors: r.watch.authors,
+                        authors: r.watch.authors, topics: r.watch.topics,
                         kinds: (r.watch.kinds || '').split(',')};
     setToggle(!!r.watch.enabled);
     renderChats();
@@ -401,24 +487,31 @@ $('#toggle').onclick = async () => {
   } catch (e) { toast('操作失败：' + e.message); }
 };
 
-// 上限/类型/白名单一改就存（以前只有点「开始/停止监听」那一刀才存，改完不点就刷新→丢设置，
+// 上限/类型/白名单/话题一改就存（以前只有点「开始/停止监听」那一刀才存，改完不点就刷新→丢设置，
 // 手机端也因此看不到新值）。POST 不带 enabled —— set_watch 里 enabled 缺省就不动，
 // 监听开关照旧只归开关按钮管。类型一个都没勾就不存（存了也没有 false/false/false 的语义）。
-for (const id of ['#maxmb', '#kphoto', '#kvideo', '#wauth']) {
-  $(id).addEventListener('change', async () => {
-    if (!state.chat) return;
-    if (!($('#kphoto').checked || $('#kvideo').checked)) {
-      toast('至少勾一种类型'); return; }
-    try {
-      const r = await post('/api/watch', watchBody(state.chat));
-      state.chat.watch = {enabled: !!r.watch.enabled, max_mb: r.watch.max_mb,
-                          authors: r.watch.authors,
-                          kinds: (r.watch.kinds || '').split(',')};
-      renderChats();
-      toast('设置已保存');
-    } catch (e) { toast('保存失败：' + e.message); }
-  });
+async function saveWatch() {
+  if (!state.chat) return;
+  if (!($('#kphoto').checked || $('#kvideo').checked)) {
+    toast('至少勾一种类型'); return; }
+  try {
+    const r = await post('/api/watch', watchBody(state.chat));
+    state.chat.watch = {enabled: !!r.watch.enabled, max_mb: r.watch.max_mb,
+                        authors: r.watch.authors, topics: r.watch.topics,
+                        kinds: (r.watch.kinds || '').split(',')};
+    renderChats();
+    toast('设置已保存');
+  } catch (e) { toast('保存失败：' + e.message); }
 }
+
+for (const id of ['#maxmb', '#kphoto', '#kvideo', '#wauth'])
+  $(id).addEventListener('change', saveWatch);
+
+/* 话题勾选面板的开关：点触发钮开/收，点外面收 */
+$('#wtopicbtn').onclick = e => { e.stopPropagation(); $('#wtopic').classList.toggle('open'); };
+document.addEventListener('click', e => {
+  if (!$('#wtopic').contains(e.target)) $('#wtopic').classList.remove('open');
+});
 
 $('#bfbtn').onclick = async () => {
   if (!state.chat) return;
@@ -540,7 +633,7 @@ function fitMasonry() {
 }
 
 /* ---------- 分享 / 删除 ---------- */
-/* ---------- 分享 / 删除 ---------- */
+
 function copyText(s) {
   if (navigator.clipboard) return navigator.clipboard.writeText(s).then(() => toast('已复制'));
   const ta = document.createElement('textarea');       // 老浏览器兜底
@@ -721,6 +814,14 @@ function setAuthor(id) {
   loadItems(true);
 }
 
+function setTopic(g) {                        // 话题可点筛选：和 setAuthor 同构
+  const id = g.topic_id ? String(g.topic_id) : '';
+  state.topic = id;
+  $('#topic').value = id;                     // 空串 = 「全部话题」那个 value="" 选项
+  syncFilter();
+  loadItems(true);
+}
+
 function card(g) {
   const el = document.createElement('figure');
   el.__g = g;                                  // 灯箱翻页要按屏幕上的顺序找条目
@@ -733,6 +834,11 @@ function card(g) {
   const c1 = document.createElement('div');
   c1.className = 'cap';
   c1.textContent = g.caption || '';
+  if (g.caption) c1.onclick = () => {          // 超出 3 行才需要点开
+    const full = c1.scrollHeight > c1.clientHeight + 2;
+    if (full || c1.classList.contains('full')) c1.classList.toggle('full');
+  };
+  else c1.onclick = null;
   const c2 = document.createElement('div');
   c2.className = 'meta';
   const k = document.createElement('span');
@@ -756,14 +862,22 @@ function card(g) {
   }
   const c3 = document.createElement('div');
   c3.className = 'meta';
-  const au = document.createElement('span');
-  au.className = 'au';
-  au.textContent = (g.author_name ? g.author_name + ' ' : '') + g.author_id;
-  au.title = '只看这个作者';
-  au.onclick = () => setAuthor(g.author_id);
-  c3.append(au, document.createTextNode(' · '
-    + (g.topic_title || (g.topic_id ? '话题 ' + g.topic_id : 'General'))
-    + ' · ' + size(g.size)));
+  if (state.chat && state.chat.kind === '频道') {
+    c3.append(document.createTextNode(size(g.size)));   // 频道没有「作者」，只留大小
+  } else {
+    const au = document.createElement('span');
+    au.className = 'au';
+    au.textContent = (g.author_name ? g.author_name + ' ' : '') + g.author_id;
+    au.title = '只看这个作者';
+    au.onclick = () => setAuthor(g.author_id);
+    const tp = document.createElement('span');   // 话题也能点了：跟作者一个待遇
+    tp.className = 'au';
+    tp.textContent = (g.topic_title || (g.topic_id ? '话题 ' + g.topic_id : 'General'));
+    tp.title = '只看这个话题';
+    tp.onclick = ev => { ev.stopPropagation(); setTopic(g); };
+    c3.append(au, document.createTextNode(' · '), tp,
+      document.createTextNode(' · ' + size(g.size)));
+  }
   const c4 = document.createElement('div');
   c4.className = 'meta';
   if (g.permalink) {
@@ -904,7 +1018,7 @@ function localActs(g) {
     b.onclick = e => { e.stopPropagation(); reveal(g, path); };
     return b;
   };
-  row.append(mk('打开文件夹', '/api/reveal'), mk('本地播放', '/api/open'));
+  row.append(mk('打开文件夹', '/api/reveal'), mk('本地打开', '/api/open'));
   return row;
 }
 
@@ -1173,9 +1287,13 @@ function drawLight() {
   const box = $('#lightbox');
   const old = box.querySelector('.lbnav');
   if (old) old.remove();
+  const olddel = document.getElementById('lbdel');   // 顶右「删除此媒体」
+  if (olddel) olddel.remove();
   box.innerHTML = '';
   const mid = document.createElement('div');   // 媒体夹在两个按钮中间：按钮贴着图/视频，不贴屏幕边
   mid.className = 'mid';
+  const wrap = document.createElement('div');  // 删除钮贴媒体右上角，要相对媒体定位
+  wrap.className = 'lbwrap';
   if (m.kind === 'video' && m.file) {
     const v = document.createElement('video');
     v.controls = true;
@@ -1183,11 +1301,11 @@ function drawLight() {
     v.preload = 'metadata';
     v.src = mediaUrl(m.file);
     if (m.thumb) v.poster = mediaUrl(m.thumb);
-    mid.appendChild(v);
+    wrap.appendChild(v);
   } else {
     const im = document.createElement('img');
     im.src = mediaUrl(m.file || m.thumb);
-    mid.appendChild(im);
+    wrap.appendChild(im);
     if (m.kind === 'video') {                  // 还没下好的视频：别再拿缩略图当视频源
       const n = document.createElement('div');
       n.className = 'lbnote';
@@ -1195,6 +1313,7 @@ function drawLight() {
       mid.appendChild(n);
     }
   }
+  mid.appendChild(wrap);
   const nav = document.createElement('div');
   nav.className = 'lbnav';
   const prev = document.createElement('button');
@@ -1210,7 +1329,34 @@ function drawLight() {
   next.onclick = e => { e.stopPropagation(); stepLight(1); };
   nav.append(prev, mid, next);
   box.appendChild(nav);
+  const del = document.createElement('button');   // 相册里一次删一张：删的就是当前这条
+  del.id = 'lbdel';
+  del.className = 'lbdel';
+  del.textContent = '删除';
+  del.title = '删除这条媒体（索引和文件一起删）';
+  del.onclick = e => { e.stopPropagation(); delLight(g, m); };
+  wrap.appendChild(del);
   $('#light').classList.remove('hide');
+}
+
+async function delLight(g, m) {
+  if (!await ask('删除这条？\n索引和文件一起删，删完找不回来。'
+                 + '将释放 ' + size(m.size || 0) + '。')) return;
+  try {
+    const r = await post('/api/delete', {chat_id: state.chat.chat_id,
+                                         msg_ids: [m.msg_id]});
+    if (r.error) return toast(r.error);
+    const lb = state.lb;
+    lb.list = lb.list.filter(([, mm]) => mm.msg_id !== m.msg_id);
+    g.members = g.members.filter(x => x.msg_id !== m.msg_id);
+    lb.i = Math.min(lb.i, lb.list.length - 1);
+    if (lb.list.length) drawLight();          // 相册里还有下一张：接着看
+    else closeLight();
+    state.total = Math.max(0, state.total - r.deleted);
+    paintCount(); showEmpty(); pollStats(); refreshAfterDelete();
+    loadItems(true);                          // 卡片重画（少了一个格子）
+    toast('已删除这条媒体，释放 ' + size(r.bytes));
+  } catch (e) { toast('删除失败：' + e.message); }
 }
 
 function stepLight(d) {
@@ -1228,10 +1374,15 @@ function stepLight(d) {
   drawLight();
 }
 
-$('#light').onclick = () => $('#light').classList.add('hide');
+const closeLight = () => {                  // 关灯箱时把顶右删除按钮一起摘掉
+  $('#light').classList.add('hide');
+  const d = document.getElementById('lbdel');
+  if (d) d.remove();
+};
+$('#light').onclick = closeLight;
 $('#lightbox').onclick = e => e.stopPropagation();
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { $('#light').classList.add('hide'); $('#drawer').classList.add('hide'); }
+  if (e.key === 'Escape') { closeLight(); $('#drawer').classList.add('hide'); }
   if ($('#light').classList.contains('hide')) return;
   if (e.key === 'ArrowLeft') stepLight(-1);
   if (e.key === 'ArrowRight') stepLight(1);

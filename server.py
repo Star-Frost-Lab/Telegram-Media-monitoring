@@ -475,6 +475,15 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/chats":
                 return self._json({"chats": self.app.call(
                     self.app.watcher.chats(q.get("force") == "1"), 120)})
+            if u.path.startswith("/api/avatar/"):
+                try:                                # 左栏群列表头像（registry 里登记过才 200）
+                    cid = int(u.path[len("/api/avatar/"):])
+                except ValueError:
+                    return self._json({"error": "bad chat"}, 400)
+                p = self.app.call_fn(self.app.watcher.avatar_file, cid)
+                if not p:
+                    return self._json({"error": "not found"}, 404)
+                return self._file(p)
             if u.path == "/api/items":
                 return self._json(self.app.call_fn(self._items, q))
             if u.path == "/api/authors":
@@ -842,7 +851,9 @@ class Handler(BaseHTTPRequestHandler):
                             max_mb=int(body["max_mb"]) if body.get("max_mb") else None,
                             enabled=body.get("enabled"),
                             authors=",".join(body.get("authors") or [])
-                            if body.get("authors") is not None else None)
+                            if body.get("authors") is not None else None,
+                            topics=",".join(body.get("topics") or [])
+                            if body.get("topics") is not None else None)
         self.app.watcher.store(chat_id)          # 顺手把库建出来
         return {"watch": dict(row)}
 

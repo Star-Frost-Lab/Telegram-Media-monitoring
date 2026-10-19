@@ -282,7 +282,7 @@ def main():
 
     # --- 6. 浏览器拿到的是不是新代码（防「改了本地文件，页面跑的还是旧的」）---
     for name, must, mustnot in (
-            ("app.js", ["本地播放", "fitMasonry", "dups", "maybeMore", "mountSent",
+            ("app.js", ["本地打开", "fitMasonry", "dups", "maybeMore", "mountSent",
                         "lockpw", "glock", "drawLock", "pollTimers"],
              ["大屏", "keep_version", "versionStrip", "morebtn", "watchTail", "legacyfix"]),
             ("style.css", ["grid-auto-rows", "pendingmark", ".noside", "#sent"],

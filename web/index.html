@@ -69,6 +69,11 @@
     </div>
     <div class="sidepad">
       <input id="search" type="search" placeholder="搜群 / 频道">
+      <div id="kindchips" class="chips">
+        <button data-k="" class="on">全部</button>
+        <button data-k="群">群组</button>
+        <button data-k="频道">频道</button>
+      </div>
     </div>
     <div id="chats" class="chatlist"></div>
     <div class="sidefoot"><div id="stats" class="muted small"></div></div>
@@ -100,8 +105,12 @@
           <label class="chk"><input type="checkbox" id="kvideo" checked> 视频</label>
           <label class="chk">单文件上限 <input type="number" id="maxmb" value="100" min="1"
             max="4096"> MB</label>
-          <label class="chk">只收这些用户 <input type="text" id="wauth" value=""
+          <label class="chk" id="wauthrow">只收这些用户 <input type="text" id="wauth" value=""
             placeholder="逗号分隔的 ID，留空收全部" size="20" style="width:14em"></label>
+          <label class="chk" id="wtopicrow">只收这些话题
+            <span class="wsel" id="wtopic"><button class="wbtn" id="wtopicbtn">
+              <span class="v">全部话题</span><span class="ar">▼</span></button>
+              <span id="wlist" class="wlist"></span></span></label>
           <span id="wstate" class="muted small"></span>
         </div>
         <div class="grp"><b>补历史</b>
@@ -132,10 +141,10 @@
             <option value="star" title="你标了星标的">只看收藏</option>
           </select>
         </div>
-        <div class="grp"><b>作者</b>
+        <div class="grp" id="fau"><b>作者</b>
           <select id="author"><option value="">全部作者</option></select>
         </div>
-        <div class="grp"><b>话题</b>
+        <div class="grp" id="ftp"><b>话题</b>
           <select id="topic"><option value="">全部话题</option></select>
         </div>
         <div id="fhint" class="muted small"></div>

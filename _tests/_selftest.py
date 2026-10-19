@@ -211,7 +211,30 @@ async def main():
     # 把白名单测试塞进来的行清掉，别污染后面的相册/分组测试
     st.delete([23, 24])
     st.commit()
-    print("take     ok: 重发挂老文件、超限只记索引、贴纸不进库、类型过滤、作者白名单、游标不动、重复看到不重复入库")
+
+    # 话题监听：名单 654278+general；名单外的（无 reply=外话）和特定话题都不进。
+    # 且：作者白名单和话题名单各管各的，都写了就都须过。
+    topic654278 = types.SimpleNamespace(reply_to_top_id=None, reply_to_msg_id=654278)
+    topic9 = types.SimpleNamespace(reply_to_top_id=None, reply_to_msg_id=555666)
+    w.reg.set_watch(CHAT, kinds="photo,video", topics="654278,general")
+    wr3 = w.reg.watch(CHAT)
+    assert await w._take(CHAT, msg(31, photo=photo(2001), reply_to=topic654278), wr3,
+                         thumb=False) == "pending"
+    assert await w._take(CHAT, msg(32, photo=photo(2002), reply_to=topic9), wr3,
+                         thumb=False) is None                     # 别的话题
+    assert await w._take(CHAT, msg(33, photo=photo(2003)), wr3,
+                         thumb=False) == "pending"                # General（无 reply 头）
+    w.reg.set_watch(CHAT, topics="", authors="555")
+    wr4 = w.reg.watch(CHAT)
+    assert await w._take(CHAT, msg(34, photo=photo(2004), sender_id=555,
+                                   reply_to=topic654278), wr4, thumb=False) == "pending"
+    assert await w._take(CHAT, msg(35, photo=photo(2005), sender_id=666,
+                                   reply_to=topic654278), wr4, thumb=False) is None
+    # 话题名字复原成空，别污染后续测试
+    w.reg.set_watch(CHAT, topics=None, authors=None)
+    st.delete([31, 33, 34])
+    st.commit()
+    print("take     ok: 重发挂老文件、超限只记索引、贴纸不进库、类型过滤、作者白名单、话题监听、游标不动、重复看到不重复入库")
 
     # --- 4. 相册聚合 ---
     st.insert(row(CHAT, 10, grouped_id=999, status="done", size=1000, thumb="thumbs/a.jpg",
@@ -1236,6 +1259,32 @@ async def main():
     w9.reg.close()
     w10.reg.close()
     sreg.close()
+
+    # --- 左栏列表：开着监听的置顶，其余（停了的、没配的）按标题混排 ---
+    w0 = fake_watcher(d)
+    w0.reg.set_watch(-100771, title="乙群", enabled=True)
+    w0.reg.set_watch(-100772, title="丙群", enabled=False)
+    merged = w0._merge_watches([{"chat_id": -100773, "title": "戊频道", "kind": "频道"}])
+    ids = [c["chat_id"] for c in merged]
+    assert ids.index(-100771) < ids.index(-100772) < ids.index(-100773), ids
+    w0.reg.close()
+    print("chats 排序 ok: 开着的监听置顶，停了的/没配的按标题混排")
+
+    # --- 离线导出：真渲染一份，瀑布流/筛选/灯箱的骨架都在 ---
+    out = os.path.join(d, "_gallery_smoke.html")
+    st.author_dir(555, "老王")
+    st.insert(row(CHAT, 61, status="done", kind="photo",
+                  path="files/x.jpg", thumb="thumbs/x.jpg", topic_id=7))
+    st.insert(row(CHAT, 62, grouped_id=55, status="done",
+                  kind="video", path="files/y.mp4", author_id=666))
+    st.commit()
+    nrows = gallery.render(out, st.gallery_rows(), "测试群", CHAT)
+    assert nrows >= 2, nrows
+    txt = open(out, encoding="utf-8").read()
+    for must in ('id="s"', 'id="au"', 'id="tp"', "lbox", "grid-auto-rows",
+                 'class="mb"', "data-au"):
+        assert must in txt, must
+    print("gallery  ok: 离线页真渲染，瀑布流/状态/作者/话题筛选/灯箱骨架齐全")
 
     st.close()
     st2.close()

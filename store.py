@@ -57,9 +57,12 @@ CREATE TABLE IF NOT EXISTS watches (
   chat_id INTEGER PRIMARY KEY, title TEXT,
   kinds TEXT NOT NULL DEFAULT 'photo,video',
   authors TEXT NOT NULL DEFAULT '',
+  topics TEXT NOT NULL DEFAULT '',
   max_mb INTEGER NOT NULL DEFAULT 100,
   enabled INTEGER NOT NULL DEFAULT 0,
   started_at INTEGER, added_at INTEGER);
+CREATE TABLE IF NOT EXISTS avatars (
+  chat_id INTEGER PRIMARY KEY, photo_key TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 """
 
@@ -873,11 +876,14 @@ class Registry:
         self.con = sqlite3.connect(self.path)
         self.con.row_factory = sqlite3.Row
         self.con.executescript(REGISTRY_SCHEMA)
-        # 老库的 watches 没有 authors 列（作者白名单，2026-10 加的）
+        # 老库的 watches 没有 authors 列（作者白名单，2026-10 加的）；topics 同理（按话题监听）
         cols = {r["name"] for r in
                 self.con.execute("PRAGMA table_info(watches)").fetchall()}
         if "authors" not in cols:
             self.con.execute("ALTER TABLE watches ADD COLUMN authors TEXT "
+                             "NOT NULL DEFAULT ''")
+        if "topics" not in cols:
+            self.con.execute("ALTER TABLE watches ADD COLUMN topics TEXT "
                              "NOT NULL DEFAULT ''")
         self.con.commit()
         return self
@@ -894,16 +900,32 @@ class Registry:
     def watches(self):
         return self.con.execute("SELECT * FROM watches ORDER BY added_at").fetchall()
 
+    # 群/频道的头像标识（photo id 变了才重新下载）
+    def avatar_key(self, chat_id):
+        r = self.con.execute("SELECT photo_key FROM avatars WHERE chat_id=?",
+                             (chat_id,)).fetchone()
+        return r["photo_key"] if r else None
+
+    def set_avatar_key(self, chat_id, photo_key):
+        self.con.execute(
+            "INSERT INTO avatars(chat_id,photo_key) VALUES(?,?) "
+            "ON CONFLICT(chat_id) DO UPDATE SET photo_key=excluded.photo_key",
+            (chat_id, photo_key))
+
+    def avatar_keys(self):
+        return {r["chat_id"]: r["photo_key"] for r in
+                self.con.execute("SELECT chat_id,photo_key FROM avatars").fetchall()}
+
     def enabled(self):
         return self.con.execute("SELECT * FROM watches WHERE enabled=1").fetchall()
 
     def set_watch(self, chat_id, title=None, kinds=None, max_mb=None, enabled=None,
-                  authors=None):
+                  authors=None, topics=None):
         if self.watch(chat_id) is None:
             self.con.execute(
-                "INSERT INTO watches(chat_id,title,kinds,authors,max_mb,enabled,"
-                "added_at,started_at) VALUES(?,?,?,?,?,?,?,?)",
-                (chat_id, title, kinds or "photo,video", authors or "",
+                "INSERT INTO watches(chat_id,title,kinds,authors,topics,max_mb,"
+                "enabled,added_at,started_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                (chat_id, title, kinds or "photo,video", authors or "", topics or "",
                  max_mb or 100, 1 if enabled else 0, int(time.time()),
                  int(time.time()) if enabled else None))
         else:
@@ -917,6 +939,9 @@ class Registry:
             if authors is not None:
                 sets.append("authors=?")
                 vals.append(authors)
+            if topics is not None:
+                sets.append("topics=?")
+                vals.append(topics)
             if max_mb is not None:
                 sets.append("max_mb=?")
                 vals.append(max_mb)

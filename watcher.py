@@ -30,7 +30,8 @@ from telethon.errors import (FileReferenceExpiredError, FloodWaitError,
                              PasswordHashInvalidError, SessionPasswordNeededError)
 from telethon.tl.functions.messages import (GetForumTopicsByIDRequest,
                                             GetHistoryRequest)
-from telethon.tl.types import (Channel, Chat, DocumentAttributeSticker,
+from telethon.tl.types import (Channel, Chat, ChatPhotoEmpty,
+                               DocumentAttributeSticker,
                                DocumentAttributeVideo, MessageMediaWebPage,
                                PhotoSize, PhotoSizeProgressive)
 
@@ -586,6 +587,7 @@ class Watcher:
         self.note = ""
         self._chats_cache = []
         self._chats_at = 0
+        self._av_task = None        # 头像后台补下载协程
         self._busy_uids = set()     # 正在下载的 file_uid：同一文件绝不能两个协程同时下
 
     # --- 库 ---
@@ -643,6 +645,8 @@ class Watcher:
         if self.client is None:                  # 还没登录：至少把已配监视的列出来
             return self._merge_watches([])
         out = []
+        pun = []                                 # 没头像缓存的会话，稍后后台补
+        keys = self.reg.avatar_keys()
         async for d in self.client.iter_dialogs(limit=500):
             e = d.entity
             if not isinstance(e, (Channel, Chat)):
@@ -651,8 +655,45 @@ class Watcher:
                         "kind": "频道" if getattr(e, "broadcast", False) else "群",
                         "noforwards": bool(getattr(e, "noforwards", False)),
                         "forum": bool(getattr(e, "forum", False))})
+            if d.id not in keys:                 # 列表先走，头像后台补
+                pun.append((d.id, e))
         self._chats_cache, self._chats_at = out, now
+        self._avatar_backfill(pun)
         return self._merge_watches(out)
+
+    def _avatar_backfill(self, pun):
+        """后台逐个补头像（一次一批，上一批没做完不开新的）。"""
+        if not pun or getattr(self, "_av_task", None) and not self._av_task.done():
+            return
+        self._av_task = asyncio.create_task(self._avatar_dl(pun))
+
+    async def _avatar_dl(self, pun):
+        for chat_id, e in pun:
+            if self.client is None:
+                return
+            try:
+                await self.avatar(e, chat_id)    # 头像：photo id 变了才重下，缓存免费
+            except Exception as exc:             # 拉不到头像不影响列表本体
+                print(f"  头像 {chat_id} 下载失败：{type(exc).__name__}", flush=True)
+        self._av_task = None
+
+    async def avatar(self, e, chat_id):
+        """把 entity 的头像存成小 jpg。photo id 没变就跳过（几百个会话刷新时才不卡）。"""
+        photo = getattr(e, "photo", None)   # Channel/Chat 的头像都是这个 ChatPhoto 对象
+        if photo is None or isinstance(photo, ChatPhotoEmpty):
+            return
+        key = str(photo.photo_id)
+        if self.reg.avatar_key(chat_id) == key:
+            return
+        buf = await self.client.download_profile_photo(e, file=bytes,
+                                                       download_big=False)
+        if not buf:
+            return
+        d = os.path.join(self.root, "avatars")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, f"{chat_id}.jpg"), "wb") as f:
+            f.write(buf)
+        self.reg.set_avatar_key(chat_id, key)
 
     def _merge_watches(self, chats):
         by_id = {c["chat_id"]: dict(c) for c in chats}
@@ -663,10 +704,21 @@ class Watcher:
             c["watch"] = {"enabled": bool(w["enabled"]),
                           "kinds": [k for k in (w["kinds"] or "").split(",") if k],
                           "max_mb": w["max_mb"], "authors": w["authors"],
-                          "started_at": w["started_at"]}
+                          "topics": w["topics"], "started_at": w["started_at"]}
+        keys = self.reg.avatar_keys()
         for c in by_id.values():
             c.setdefault("watch", None)
-        return sorted(by_id.values(), key=lambda c: (c["watch"] is None, c["title"] or ""))
+            if c["chat_id"] in keys:               # 有头像文件的才给 URL
+                c["avatar"] = f"/api/avatar/{c['chat_id']}"
+        # 开着监听的前排坐，其余（停了的、没配的）混在一起按标题
+        return sorted(by_id.values(),
+                      key=lambda c: (not (c["watch"] and c["watch"]["enabled"]),
+                                     c["title"] or ""))
+
+    def avatar_file(self, chat_id):
+        """头像文件在不在（server 的 /api/avatar 用）。"""
+        p = os.path.join(self.root, "avatars", f"{chat_id}.jpg")
+        return p if os.path.isfile(p) else None
 
     # --- 客户端与登录 ---
 
@@ -1069,6 +1121,12 @@ class Watcher:
         """把一条消息按规则收进库。返回落库的状态，None 表示这条不要。"""
         if not allowed(w, m.sender_id):
             return None
+        tw = [t for t in (w["topics"] or "").split(",") if t]
+        if tw:                                   # 按话题监听（论坛群）：名单外不收；
+            tkey = tg.topic_of(m)                # 话题和作者是「且」，两个都写了都须过
+            tkey = str(tkey) if tkey else "general"
+            if tkey not in tw:
+                return None
         kinds = [k for k in (w["kinds"] or "").split(",") if k]
         info, why = classify(m)
         if info is None or (kinds and info["kind"] not in kinds):
