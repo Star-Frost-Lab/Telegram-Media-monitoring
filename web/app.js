@@ -1039,6 +1039,7 @@ function upsert(groups, prependNew) {
     const old = state.cards.get(g.key);
     if (old && old.sig === s) continue;
     const el = card(g);
+    if (state.pick && state.sel.has(g.key)) el.classList.add('sel');  // 原地替换时把选中态贴回来
     if (old) old.el.replaceWith(el);
     else if (prependNew) { box.prepend(el); added++; }
     else { box.appendChild(el); added++; }
@@ -1207,7 +1208,7 @@ function paintCount() {
 async function loadItems(reset) {
   if (!state.chat || state.loading) return;
   state.loading = true;
-  $('#items').className = 'items';           // 从统计页切回来时把布局类还原
+  $('#items').classList.remove('stats');     // 从统计页切回来时把布局类还原（整体换 className 会把编辑模式的 pick 一起抹掉）
   const limit = 60;
   const qs = itemsQs(limit);
   if (!reset && state.minMsg) qs.set('before', state.minMsg);
@@ -1219,6 +1220,7 @@ async function loadItems(reset) {
       $('#items').innerHTML = '';
       state.cards.clear();
       state.minMsg = null;
+      if (state.pick) setPick(true);   // 重拉 = 换了一批卡片：选中清零，残留 key 不留（计数才等于实际能删的）
     }
     state.total = r.total || 0;
     upsert(groups, false);
@@ -1374,7 +1376,9 @@ function stepLight(d) {
   drawLight();
 }
 
-const closeLight = () => {                  // 关灯箱时把顶右删除按钮一起摘掉
+const closeLight = () => {                  // 关灯箱时把顶右删除按钮一起摘掉，先把还在播的视频停掉
+  const v = document.querySelector('#lightbox video');
+  if (v) v.pause();
   $('#light').classList.add('hide');
   const d = document.getElementById('lbdel');
   if (d) d.remove();
