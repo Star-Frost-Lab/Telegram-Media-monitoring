@@ -181,6 +181,14 @@ def check_pw(password, salt, want):
     return hmac.compare_digest(hash_pw(password, salt)[1], want)
 
 
+def _lan_token(want):
+    """访问口令 → cookie 比对用 token；没设口令返回 None。缓存在 App 上（_set_settings 刷新），
+    别让每个 /media 请求都为它过一次 loop 桥。"""
+    if not want:
+        return None
+    return hmac.new(want.encode("ascii"), b"archive-lan", hashlib.sha256).hexdigest()
+
+
 def show_in_explorer(path):
     """在资源管理器里选中这个文件。
 
@@ -293,6 +301,7 @@ class App:
         self.error = None
         self.httpd = None            # 监听器由 serve() 建
         self.host = None
+        self.lan_token = None        # 局域网访问 token 缓存：_authed 别为每张图过一次桥
         self.ready = threading.Event()
         self.thread = threading.Thread(target=self._run, daemon=True)
 
@@ -316,6 +325,7 @@ class App:
         finally:
             self.ready.set()
         if self.error is None:
+            self.lan_token = _lan_token(self.watcher.reg.setting("lan_hash", ""))
             self.loop.run_forever()
 
     def serve(self):
@@ -574,11 +584,8 @@ class Handler(BaseHTTPRequestHandler):
         return is_local(self.client_address[0])
 
     def _token(self):
-        # 库连接属于 loop 线程，HTTP 线程直接读会抛 ProgrammingError（手机端就登不进来了）
-        want = self.app.call_fn(lambda: self.app.watcher.reg.setting("lan_hash", ""))
-        if not want:
-            return None
-        return hmac.new(want.encode("ascii"), b"archive-lan", hashlib.sha256).hexdigest()
+        # 缓存值：局域网每 /media 请求都 call_fn 过一次桥，缩略图全会排队；改口令时由 _set_settings 刷新
+        return self.app.lan_token
 
     def _login_page(self, err=""):
         body = LOGIN_HTML.replace("{err}", f'<div class="e">{err}</div>' if err else "")
@@ -863,6 +870,7 @@ class Handler(BaseHTTPRequestHandler):
             salt, h = hash_pw(str(body["lan_password"]))
             reg.set_setting("lan_salt", salt)
             reg.set_setting("lan_hash", h)
+            self.app.lan_token = _lan_token(h)   # 内存里的 token 一起换，老 cookie 立刻失效
         if body.get("disk_cap_gb") is not None:
             reg.set_setting("disk_cap_gb", max(1, int(body["disk_cap_gb"])))
         return {"disk_cap_gb": reg.setting("disk_cap_gb", 50),

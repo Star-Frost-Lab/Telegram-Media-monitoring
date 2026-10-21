@@ -265,6 +265,7 @@ def _lane_plan(total, lanes, chunk=LANE_CHUNK):
             for i in range(lanes)]
 
 
+# 下载期间的整文件 SHA-256 挪到线程：loop 是唯一通道，同步哈希会把网页 API 和局域网图片全冻住
 def _sha_file(path):
     """按序整读一个文件算 sha256。并行路径的块是乱序落盘的，只能下完再算。"""
     h = hashlib.sha256()
@@ -358,7 +359,7 @@ async def _download_lanes(client, st, msg, row, part, prog_path):
     if not all(prog["done"][i] >= n for i, (_s, n) in enumerate(plan)):
         return None, f"并行下载没下满（块账 {sum(prog['done'])}/{sum(n for _s, n in plan)}），下轮接着来"
     os.remove(prog_path)
-    return _sha_file(part), None
+    return await asyncio.to_thread(_sha_file, part), None
 
 
 async def grab_full(client, st, msg, row):
@@ -418,11 +419,14 @@ async def _grab_full_serial(client, st, msg, row, part, total):
         if start != have:                          # 砍到 1 MiB 对齐点
             with open(part, "r+b") as fh:
                 fh.truncate(start)
-        h = hashlib.sha256()
-        if start:                                  # 已经下过的部分要重新喂进哈希
+        # 已经下过的部分要重新喂进哈希：整文件重读，挪线程别冻 loop（大 .part 一读好几秒）
+        def _rehash_prefix():
+            hh = hashlib.sha256()
             with open(part, "rb") as fh:
                 for block in iter(lambda: fh.read(MiB), b""):
-                    h.update(block)
+                    hh.update(block)
+            return hh
+        h = await asyncio.to_thread(_rehash_prefix) if start else hashlib.sha256()
         got = start
         try:
             with open(part, "ab") as fh:
