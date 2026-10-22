@@ -12,6 +12,7 @@ import asyncio
 import csv
 import hashlib
 import io
+import json
 import os
 import shutil
 import sys
@@ -187,6 +188,21 @@ async def main():
     assert await w._take(CHAT, msgs[0], wr, thumb=False) == "pending"
     assert len(st.gallery_rows()) == 4
 
+    # 撤回裸下的「下载门票」：入库时存 access_hash + file_reference（+全图 thumb_size）
+    ref = json.loads(st.get(1)["media_ref"])
+    assert ref == {"ty": "p", "ah": 1, "fr": "MDAwMDAwMDA=", "ts": "y"}, ref
+    vref = json.loads(st.get(5)["media_ref"])
+    assert vref["ty"] == "d" and vref["ts"] == "" and vref["ah"] == 1, vref
+    # 行没票的旧行：重看活消息时顺手补上（编辑换掉的媒体不算旧媒体的票，
+    # 条件是 file_uid 还对得上 —— 这里 1 号没被编辑，必补）
+    st.set_media_ref(1, "")
+    st.commit()
+    assert await w._take(CHAT, msgs[0], wr, thumb=False) == "pending"
+    assert json.loads(st.get(1)["media_ref"]) == ref
+    # 坏票不炸：解析失败返回错误说明，由调用方照常走失败分支
+    assert (await watcher.grab_by_ref(None, st,
+                                      {"media_ref": "{oops", "file_uid": 1}))[1] != ""
+
     # 类型过滤：只勾视频时，图片不进库
     w.reg.set_watch(CHAT, kinds="video")
     wr = w.reg.watch(CHAT)
@@ -311,7 +327,6 @@ async def main():
     print("watch    ok: 开始/停止会记 started_at，磁盘上限可改（默认 50 GB）")
 
     # --- 7.5 配置：环境变量优先、存在库里、明文不外传 ---
-    import json
     cfg = store.Config(d)
     assert not cfg.ready and cfg.api_id is None and not cfg.api_hash_set
     assert cfg.api_hash == store.Config.PLACEHOLDER_HASH        # 没填 hash 也建得出客户端

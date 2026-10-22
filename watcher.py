@@ -32,7 +32,8 @@ from telethon.tl.functions.messages import (GetForumTopicsByIDRequest,
                                             GetHistoryRequest)
 from telethon.tl.types import (Channel, Chat, ChatPhotoEmpty,
                                DocumentAttributeSticker,
-                               DocumentAttributeVideo, MessageMediaWebPage,
+                               DocumentAttributeVideo, InputDocumentFileLocation,
+                               InputPhotoFileLocation, MessageMediaWebPage,
                                PhotoSize, PhotoSizeProgressive)
 
 import gallery
@@ -113,6 +114,33 @@ def biggest_photo(photo):
     return w, h, size
 
 
+def full_photo_type(photo):
+    """占位最大的普通（非 stripped）尺寸的类型字符：下全图要用它当 thumb_size。"""
+    best, bw, btype = 0, 0, ""
+    for s in photo.sizes or []:
+        if isinstance(s, (PhotoSize, PhotoSizeProgressive)):
+            n = max(s.sizes) if isinstance(s, PhotoSizeProgressive) and s.sizes \
+                else (getattr(s, "size", 0) or 0)
+            if n and s.w * s.h >= bw:
+                best, bw, btype = n, s.w * s.h, s.type
+    return btype
+
+
+def media_ref(ty, obj, ts=""):
+    """入库时把「下载门票」存成 JSON：id 之外的 access_hash + file_reference。
+
+    下载根本不需要消息，只要这三个字段（inputPhotoFileLocation.md /
+    inputDocumentFileLocation.md）：消息只是容器，撤回删的是容器，blob 还在服务器上。
+    file_reference 是服务端会轮换的一次性票据 —— 只能当「门票」存，绝不能当去重键
+    （去重两层是 file_uid=同一文件对象、sha256=同样字节，跟它无关）。"""
+    if obj is None:
+        return ""
+    return json.dumps(
+        {"ty": ty, "ah": obj.access_hash,
+         "fr": base64.b64encode(obj.file_reference or b"").decode(), "ts": ts},
+        separators=(",", ":"))
+
+
 def classify(m):
     """(媒体信息, 不要的理由)。
 
@@ -123,7 +151,8 @@ def classify(m):
     if photo is not None:
         w, h, size = biggest_photo(photo)
         return {"kind": "photo", "file_uid": photo.id, "size": size,
-                "mime": "image/jpeg", "width": w, "height": h, "duration": None}, None
+                "mime": "image/jpeg", "width": w, "height": h, "duration": None,
+                "ref": media_ref("p", photo, full_photo_type(photo))}, None
 
     doc = getattr(m, "document", None)
     if doc is None:
@@ -141,7 +170,8 @@ def classify(m):
             w, h, dur = a.w, a.h, a.duration
     return {"kind": "photo" if mime.startswith("image/") else "video",
             "file_uid": doc.id, "size": doc.size, "mime": mime,
-            "width": w, "height": h, "duration": dur}, None
+            "width": w, "height": h, "duration": dur,
+            "ref": media_ref("d", doc)}, None
 
 
 # --- 往回翻页（兜底扫描用）---
@@ -486,12 +516,53 @@ def _drop_part(st, file_uid):
             pass
 
 
+# 撤回后凭票直下被服务端拒掉的场景：引用过期且来源（消息）已撤 → 刷新不了，真的下不来
+REF_GONE = "文件引用过期且消息已被撤回，刷新不了了"
+
+
+async def grab_by_ref(client, st, row):
+    """消息（容器）没了也能下：按入库时存的 id/access_hash/file_reference 拼 InputFileLocation
+    直接拉（upload.getFile 的全部输入就这三样，见 inputPhotoFileLocation.md）。"""
+    try:
+        ref = json.loads(row["media_ref"])
+        fr = base64.b64decode(ref["fr"])
+        if ref.get("ty") == "p":
+            loc = InputPhotoFileLocation(id=row["file_uid"], access_hash=ref["ah"],
+                                         file_reference=fr, thumb_size=ref.get("ts") or "")
+        else:
+            loc = InputDocumentFileLocation(id=row["file_uid"], access_hash=ref["ah"],
+                                            file_reference=fr, thumb_size="")
+    except (KeyError, TypeError, ValueError):
+        return None, "入库时存的位置坏了，解析不出来"
+    part = st.abs(f"tmp/{row['file_uid']}.part")
+    try:
+        # 低层 download_file 直接吃 InputFileLocation，内部管 CDN 重定向；file=路径流式落盘
+        await client.download_file(loc, file=part, file_size=row["size"] or None)
+    except FileReferenceExpiredError:
+        return None, REF_GONE
+    return await asyncio.to_thread(_sha_file, part), None
+
+
 async def finish(client, st, msg, row):
     """下完了：按内容落盘、按作者建链接、把等它的重复行补全。"""
     sha, err = await grab_full(client, st, msg, row)
     if err:
         return None, err
     part = st.abs(f"tmp/{row['file_uid']}.part")
+    return _place(st, row, part, sha)
+
+
+async def finish_raw(client, st, row):
+    """撤回裸下版 finish：grab_by_ref + 同一份收尾。"""
+    sha, err = await grab_by_ref(client, st, row)
+    if err:
+        return None, err
+    part = st.abs(f"tmp/{row['file_uid']}.part")
+    return _place(st, row, part, sha)
+
+
+def _place(st, row, part, sha):
+    """拿到 sha 之后的共同收尾（finish 与撤回裸下共用）。"""
     if st.get(row["msg_id"]) is None:
         # 下载期间这条被删了（页面上删的）：文件落盘也没人引用，白占磁盘，直接扔掉。
         # 不检查的话它会变成一份 used_bytes() 数不到的孤儿文件。
@@ -1139,6 +1210,11 @@ class Watcher:
         st = self.store(chat_id)
         existing = st.get(m.id)
         if existing is not None:
+            # 兜底扫描重看活消息时顺手补票：旧行（列没家的）也获得撤回后裸下能力。
+            # 只认媒体对象还是这条原来的那个 —— 被编辑换掉的不算旧媒体的票。
+            if not existing["media_ref"] and info.get("ref") \
+                    and info["file_uid"] == existing["file_uid"]:
+                st.set_media_ref(m.id, info["ref"])
             return existing["status"]              # 已经收过了（兜底扫描会重复看到同一条）
         topic_id = tg.topic_of(m)
         st.author_dir(m.sender_id, tg.author_name(m))
@@ -1149,6 +1225,7 @@ class Watcher:
                "duration": info["duration"], "caption": m.message,
                "permalink": tg.permalink_id(chat_id, m.id, topic_id),
                "grouped_id": m.grouped_id, "file_uid": info["file_uid"],
+               "media_ref": info.get("ref", ""),
                "tries": 0, "added": int(time.time())}
 
         if info["size"] and info["size"] > w["max_mb"] * MiB:
@@ -1250,14 +1327,20 @@ class Watcher:
             try:
                 msgs = await get_by_ids(self.client, peer, [row])
                 msg = msgs[0] if msgs else None
-                if msg is None:
+                if msg is None and not row["media_ref"]:
                     st.set_status(row["msg_id"], "failed", "消息已经不在了（被删或撤回）")
                     return 0
                 # 给每条下载一个上限：没有超时的话，一条卡住的连接会把整个队列堵死
                 t0 = time.time()                   # 速率基线：调下载优化前后都从 _run.log 里比（B 计划）
-                _size, err = await asyncio.wait_for(
-                    finish(self.client, st, msg, row),
-                    timeout=120 + (row["size"] or 0) / 10240)
+                if msg is None:
+                    # 消息被撤了，但入库时存过位置：blob 还在服务器上，凭票直下。
+                    _size, err = await asyncio.wait_for(
+                        finish_raw(self.client, st, row),
+                        timeout=120 + (row["size"] or 0) / 10240)
+                else:
+                    _size, err = await asyncio.wait_for(
+                        finish(self.client, st, msg, row),
+                        timeout=120 + (row["size"] or 0) / 10240)
             except asyncio.TimeoutError:
                 err = "下载超时（连接卡住了），等会儿再试"
             except Exception as exc:
@@ -1268,6 +1351,10 @@ class Watcher:
                 print(f"  [{row['msg_id']}] {mb:.1f} MB / {dt:.1f}s = {mb / dt:.2f} MB/s",
                       flush=True)
             if err:
+                if err == REF_GONE:
+                    st.set_status(row["msg_id"], "failed", err)
+                    print(f"  [{row['msg_id']}] {err}", flush=True)
+                    return 0
                 if err == MEDIA_GONE:
                     st.set_status(row["msg_id"], "skipped", err)
                     print(f"  [{row['msg_id']}] {err}", flush=True)

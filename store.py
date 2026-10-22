@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS messages (
   file_uid INTEGER, sha256 TEXT, path TEXT, link TEXT, thumb TEXT,
   status TEXT NOT NULL, note TEXT, dup_of INTEGER, tries INTEGER DEFAULT 0,
   added INTEGER DEFAULT 0, edited INTEGER, deleted INTEGER, star INTEGER,
+  media_ref TEXT,
   PRIMARY KEY (chat_id, msg_id));
 CREATE INDEX IF NOT EXISTS idx_author ON messages(chat_id, author_id, date);
 CREATE INDEX IF NOT EXISTS idx_uid ON messages(chat_id, file_uid);
@@ -158,7 +159,7 @@ class Store:
         """
         cols = (("edited", "INTEGER"), ("deleted", "INTEGER"), ("star", "INTEGER"),
                 ("next_try", "INTEGER"), ("edit_seen", "INTEGER"),
-                ("caption_before", "TEXT"))
+                ("caption_before", "TEXT"), ("media_ref", "TEXT"))
         have = {r["name"] for r in self.con.execute("PRAGMA table_info(messages)")}
         add = [(c, t) for c, t in cols if c not in have]
         if add:
@@ -365,6 +366,11 @@ class Store:
             "AND COALESCE(deleted,0)=0",
             (int(when or time.time()), self.chat_id, msg_id))
         self.con.commit()
+
+    def set_media_ref(self, msg_id, ref):
+        """入库时存下的下载门票（id/access_hash/file_reference）：撤回后凭它裸下。"""
+        self.con.execute("UPDATE messages SET media_ref=? WHERE chat_id=? AND msg_id=?",
+                         (ref, self.chat_id, msg_id))
 
     def set_status(self, msg_id, status, note=None, **kw):
         sets, vals = ["status=?", "note=?"], [status, note]
