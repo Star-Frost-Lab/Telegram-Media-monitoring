@@ -656,6 +656,7 @@ class Watcher:
         self.error = None
         self.worker = None
         self.sweeper = None
+        self.reboot = None       # ensure_conn 的在途重连任务：两路同时触发只跑一次
         self.running = True
         self.hooked = False
         self.last_sweep = {}
@@ -719,6 +720,7 @@ class Watcher:
             return self._merge_watches(self._chats_cache)
         if self.client is None:                  # 还没登录：至少把已配监视的列出来
             return self._merge_watches([])
+        await self.ensure_conn()
         out = []
         pun = []                                 # 没头像缓存的会话，稍后后台补
         keys = self.reg.avatar_keys()
@@ -810,6 +812,20 @@ class Watcher:
                                          self.cfg.api_hash, proxy=self.proxy)
         return self.client
 
+    async def ensure_conn(self):
+        """掉线看门狗：boot() 只管启动/解锁，这里管「彻底断开后的拉回来」。
+
+        Telethon 内部的临时重连扛不住时会放弃并标断开，之后所有请求都报
+        「Cannot send requests while disconnected」，没人再连就永远废着。
+        兜底扫描每轮开头、拉会话列表之前都过这里。在途任务合并，防两路同时重连。
+        """
+        if self.client is None or self.client.is_connected():
+            return
+        if self.reboot is None or self.reboot.done():
+            # 看门狗只试 2 次：代理真死时连不上，别把唯一的 loop 冻太久
+            self.reboot = asyncio.create_task(self.boot(attempts=2))
+        await self.reboot
+
     def _blob_session(self):
         self.blob_session = BlobSession(self.reg, self.sealer)
         return self.blob_session
@@ -824,7 +840,7 @@ class Watcher:
         self.hooked = False
         self.qr = None
 
-    async def boot(self):
+    async def boot(self, attempts=6):
         """启动/重试：有 session 就直接连上，别一上来就让人扫码。
 
         三条分支：
@@ -854,7 +870,7 @@ class Watcher:
             return
         self.state = "connecting"
         try:
-            await tg.connect(client)
+            await tg.connect(client, attempts=attempts)
             if not await client.is_user_authorized():
                 self.state = "login"
                 return
@@ -1397,6 +1413,7 @@ class Watcher:
     async def _sweep_loop(self):
         while self.running:
             await asyncio.sleep(SWEEP_SECONDS)
+            await self.ensure_conn()             # 看门狗：断开自己拉回来（重试 2 次，别把 loop 冻太久）
             for w in self.reg.enabled():
                 try:
                     await self.sweep(w["chat_id"])
